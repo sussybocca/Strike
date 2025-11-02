@@ -1,0 +1,7 @@
+tunnel: my-tunnel
+credentials-file: C:\Users\hotne\.cloudflared\da066f85-f443-4268-ad19-9c28d418c050.json
+
+ingress:
+  - hostname: <temporary-or-your-domain>.trycloudflare.com
+    service: http://localhost:3000
+  - service: http_status:404
