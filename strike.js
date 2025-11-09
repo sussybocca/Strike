@@ -1,27 +1,60 @@
 #!/usr/bin/env node
+import inquirer from "inquirer";
 import fs from "fs-extra";
 import path from "path";
-import os from "os";
 import { execa } from "execa";
 import fetch from "node-fetch";
 import { load } from "cheerio";
+import os from "os";
 
-// -----------------------------
-// Inputs from GitHub Actions
-// -----------------------------
-const framework = process.env.STRIKE_FRAMEWORK || "Express";
-const description = process.env.STRIKE_DESCRIPTION || "A sample project";
+// ======================================================
+// ✅ Strike Project Generator
+// ======================================================
 
 // -----------------------------
 // Frameworks and templates
 // -----------------------------
 const frameworks = [
-  "Express", "Fastify", "Koa", "Next.js", "Vite", "NestJS", "Hapi", "Sapper",
-  "AdonisJS", "FeathersJS", "LoopBack", "Flask", "Django", "FastAPI"
+  "Express",
+  "Fastify",
+  "Koa",
+  "Next.js",
+  "Vite",
+  "NestJS",
+  "Hapi",
+  "Sapper",
+  "AdonisJS",
+  "FeathersJS",
+  "LoopBack",
+  "Flask",
+  "Django",
+  "FastAPI",
 ];
 
 const templates = [
-  "Bot", "Dashboard", "API", "CLI Tool", "Web Scraper", "Machine Learning Project", "Microservice"
+  "Bot",
+  "Dashboard",
+  "API",
+  "CLI Tool",
+  "Web Scraper",
+  "Machine Learning Project",
+  "Microservice",
+];
+
+// -----------------------------
+// Node.js optional dependencies
+// -----------------------------
+const nodeDependencies = [
+  "mongoose",
+  "sequelize",
+  "socket.io",
+  "graphql",
+  "apollo-server",
+  "prisma",
+  "redis",
+  "bull",
+  "typeorm",
+  "jsonwebtoken",
 ];
 
 // -----------------------------
@@ -64,12 +97,12 @@ async function safeExec(command, args, options = {}) {
 // -----------------------------
 // Parse description → structure
 // -----------------------------
-function parseDescription(desc) {
+function parseDescription(description) {
   const structure = { routes: [], controllers: [], pages: [] };
-  if (/route|routes/i.test(desc)) structure.routes.push("example");
-  if (/controller|controllers/i.test(desc)) structure.controllers.push("main");
-  if (/dashboard/i.test(desc)) structure.pages.push("dashboard");
-  if (/login/i.test(desc)) structure.pages.push("login");
+  if (/route|routes/i.test(description)) structure.routes.push("example");
+  if (/controller|controllers/i.test(description)) structure.controllers.push("main");
+  if (/dashboard/i.test(description)) structure.pages.push("dashboard");
+  if (/login/i.test(description)) structure.pages.push("login");
   return structure;
 }
 
@@ -92,7 +125,9 @@ async function fetchWithTimeout(url, timeoutMs = 15000) {
 async function fetchDuckDuckGo(query, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await fetchWithTimeout(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+      const res = await fetchWithTimeout(
+        `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+      );
       const html = await res.text();
       const $ = load(html);
       const links = [];
@@ -121,19 +156,22 @@ async function fetchCodeSnippet(url, retries = 1) {
   return "";
 }
 
-async function fetchCodeFromWeb(desc) {
+async function fetchCodeFromWeb(description) {
   log("🌐 Fetching full code from web editors...");
-  const cached = await getCached(desc);
+  const cached = await getCached(description);
   if (cached) {
     log("✅ Using cached snippet.");
     return cached;
   }
 
-  const urls = (await fetchDuckDuckGo(desc + " full project code")).flat();
+  const searchTasks = [fetchDuckDuckGo(description + " full project code")];
+  const results = await Promise.all(searchTasks);
+  const urls = results.flat();
+
   const snippets = await Promise.all(urls.map((url) => fetchCodeSnippet(url)));
   const validSnippet = snippets.find((s) => s.length > 200);
   if (validSnippet) {
-    await setCached(desc, validSnippet);
+    await setCached(description, validSnippet);
     return validSnippet;
   }
   return "";
@@ -143,15 +181,22 @@ async function fetchCodeFromWeb(desc) {
 // Environment check
 // -----------------------------
 async function verifyEnvironment() {
-  try { await execa("node", ["-v"]); } 
-  catch { console.error("❌ Node.js not found."); process.exit(1); }
+  try {
+    await execa("node", ["-v"]);
+  } catch {
+    console.error("❌ Node.js not found. Please install Node.js first.");
+    process.exit(1);
+  }
 
-  try { await execa("python3", ["--version"]); } 
-  catch { log("⚠️ Python not found. Python frameworks will be skipped."); }
+  try {
+    await execa("python", ["--version"]);
+  } catch {
+    log("⚠️ Python not found. Python frameworks will be skipped.");
+  }
 }
 
 // -----------------------------
-// Framework-specific setup
+// Framework setup
 // -----------------------------
 async function setupFramework(framework, projectDir) {
   const fw = framework.toLowerCase();
@@ -163,9 +208,16 @@ async function setupFramework(framework, projectDir) {
       case "express":
         await fs.writeFile(indexPath, `
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 const app = express();
-app.get('/', (req, res) => res.send('Hello from Express!'));
-app.listen(3000, () => console.log('Express running on http://localhost:3000'));
+const routesPath = path.join(process.cwd(), 'routes');
+if (fs.existsSync(routesPath)) {
+  fs.readdirSync(routesPath).forEach(file => {
+    import('./routes/' + file).then(mod => mod.default(app));
+  });
+}
+app.listen(3000, () => console.log('Express server running on http://localhost:3000'));
 `);
         await safeExec("npm", ["install", "express"], { cwd: projectDir });
         break;
@@ -183,11 +235,26 @@ app.listen({ port: 3000 }, () => console.log('Fastify running on http://localhos
       case "koa":
         await fs.writeFile(indexPath, `
 import Koa from 'koa';
+import Router from '@koa/router';
 const app = new Koa();
-app.use(async ctx => ctx.body = 'Hello from Koa!');
+const router = new Router();
+router.get('/', ctx => ctx.body = 'Hello from Koa!');
+app.use(router.routes()).use(router.allowedMethods());
 app.listen(3000, () => console.log('Koa running on http://localhost:3000'));
 `);
-        await safeExec("npm", ["install", "koa"], { cwd: projectDir });
+        await safeExec("npm", ["install", "koa", "@koa/router"], { cwd: projectDir });
+        break;
+
+      case "next.js":
+        await safeExec("npx", ["create-next-app@latest", "next-app"], { cwd: projectDir });
+        break;
+
+      case "vite":
+        await safeExec("npm", ["create", "vite@latest", "vite-app"], { cwd: projectDir });
+        break;
+
+      case "nestjs":
+        await safeExec("npx", ["@nestjs/cli", "new", "nestjs-app"], { cwd: projectDir });
         break;
 
       case "hapi":
@@ -201,18 +268,6 @@ console.log('Hapi running on', server.info.uri);
         await safeExec("npm", ["install", "@hapi/hapi"], { cwd: projectDir });
         break;
 
-      case "nestjs":
-        await safeExec("npx", ["@nestjs/cli", "new", "nestjs-app", "--skip-install"], { cwd: projectDir });
-        break;
-
-      case "next.js":
-        await safeExec("npx", ["create-next-app@latest", "next-app", "--yes"], { cwd: projectDir });
-        break;
-
-      case "vite":
-        await safeExec("npm", ["create", "vite@latest", "vite-app", "--yes"], { cwd: projectDir });
-        break;
-
       case "flask":
         await fs.writeFile(path.join(projectDir, "app.py"), `
 from flask import Flask
@@ -220,26 +275,31 @@ app = Flask(__name__)
 @app.route('/')
 def home():
     return "Hello from Flask!"
+if __name__ == '__main__':
+    app.run(debug=True)
 `);
-        await safeExec("python3", ["-m", "venv", "venv"], { cwd: projectDir });
-        await safeExec(path.join(projectDir, "venv", "bin", "pip"), ["install", "flask"], { cwd: projectDir });
+        await safeExec("python", ["-m", "venv", "venv"], { cwd: projectDir });
+        await safeExec(path.join(projectDir, "venv", "Scripts", "pip"), ["install", "flask"], { cwd: projectDir });
         break;
 
       case "django":
-        await safeExec("python3", ["-m", "pip", "install", "django"], { cwd: projectDir });
+        await safeExec("pip", ["install", "django"], { cwd: projectDir });
         await safeExec("django-admin", ["startproject", "django_app", "."], { cwd: projectDir });
         break;
 
       case "fastapi":
         await fs.writeFile(path.join(projectDir, "main.py"), `
 from fastapi import FastAPI
+import uvicorn
 app = FastAPI()
 @app.get("/")
 def read_root():
     return {"message": "Hello from FastAPI!"}
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 `);
-        await safeExec("python3", ["-m", "venv", "venv"], { cwd: projectDir });
-        await safeExec(path.join(projectDir, "venv", "bin", "pip"), ["install", "fastapi", "uvicorn"], { cwd: projectDir });
+        await safeExec("python", ["-m", "venv", "venv"], { cwd: projectDir });
+        await safeExec(path.join(projectDir, "venv", "Scripts", "pip"), ["install", "fastapi", "uvicorn"], { cwd: projectDir });
         break;
 
       default:
@@ -251,21 +311,99 @@ def read_root():
 }
 
 // -----------------------------
-// Main function
+// Install optional dependencies
+// -----------------------------
+async function installDependencies(projectDir, selectedDeps) {
+  log("📦 Installing selected Node.js dependencies...");
+  const folders = ["models", "services", "middleware", "utils"];
+  for (const folder of folders) await fs.ensureDir(path.join(projectDir, folder));
+
+  if (selectedDeps.includes("mongoose")) {
+    await fs.writeFile(path.join(projectDir, "models", "user.js"), `
+import mongoose from 'mongoose';
+const userSchema = new mongoose.Schema({ name: String, email: String });
+export default mongoose.model('User', userSchema);
+`);
+  }
+
+  if (selectedDeps.includes("sequelize")) {
+    await fs.writeFile(path.join(projectDir, "models", "post.js"), `
+import { Sequelize, DataTypes } from 'sequelize';
+const sequelize = new Sequelize('sqlite::memory:');
+const Post = sequelize.define('Post', { title: DataTypes.STRING, content: DataTypes.TEXT });
+export default Post;
+`);
+  }
+
+  if (selectedDeps.includes("socket.io")) {
+    await fs.writeFile(path.join(projectDir, "services", "socket.js"), `
+import { Server } from 'socket.io';
+export function initSocket(server) {
+  const io = new Server(server);
+  io.on('connection', socket => console.log('Client connected'));
+}
+`);
+  }
+
+  if (selectedDeps.includes("graphql") || selectedDeps.includes("apollo-server")) {
+    await fs.writeFile(path.join(projectDir, "services", "graphql.js"), `
+import { ApolloServer, gql } from 'apollo-server';
+const typeDefs = gql\`type Query { hello: String }\`;
+const resolvers = { Query: { hello: () => 'Hello GraphQL' } };
+export const server = new ApolloServer({ typeDefs, resolvers });
+`);
+  }
+
+  if (selectedDeps.includes("redis") || selectedDeps.includes("bull")) {
+    await fs.writeFile(path.join(projectDir, "services", "queue.js"), `
+import Queue from 'bull';
+const myQueue = new Queue('tasks');
+export default myQueue;
+`);
+  }
+
+  if (selectedDeps.includes("jsonwebtoken")) {
+    await fs.writeFile(path.join(projectDir, "utils", "auth.js"), `
+import jwt from 'jsonwebtoken';
+export function generateToken(payload) {
+  return jwt.sign(payload, 'secret', { expiresIn: '1h' });
+}
+`);
+  }
+
+  for (const dep of selectedDeps) {
+    log(`⚙️ Installing ${dep}...`);
+    await safeExec("npm", ["install", dep], { cwd: projectDir });
+  }
+
+  log("✅ Selected optional dependencies installed!");
+}
+
+// -----------------------------
+// Main CLI
 // -----------------------------
 async function main() {
   log("🚀 Strike Project Generator started...");
   await verifyEnvironment();
 
+  const answers = await inquirer.prompt([
+    { type: "list", name: "framework", message: "Which framework do you want to use?", choices: frameworks },
+    { type: "list", name: "template", message: "Select a project template:", choices: templates },
+    { type: "editor", name: "description", message: "Describe your project (multi-line supported):" },
+    { type: "checkbox", name: "dependencies", message: "Select optional Node.js dependencies to include:", choices: nodeDependencies },
+  ]);
+
+  const { framework, description, dependencies } = answers;
   const projectDir = path.join(process.cwd(), "strike-project");
+
   await fs.ensureDir(projectDir);
   await fs.emptyDir(projectDir);
 
   const structure = parseDescription(description);
   const routesDir = path.join(projectDir, "routes");
   const controllersDir = path.join(projectDir, "controllers");
-  if (structure.routes.length) await fs.ensureDir(routesDir);
-  if (structure.controllers.length) await fs.ensureDir(controllersDir);
+  if (structure.routes.length > 0) await fs.ensureDir(routesDir);
+  if (structure.controllers.length > 0) await fs.ensureDir(controllersDir);
 
   const codeSnippet = await fetchCodeFromWeb(description);
   for (const route of structure.routes)
@@ -274,15 +412,14 @@ async function main() {
     await fs.writeFile(path.join(controllersDir, `${ctrl}.js`), codeSnippet || `export function ${ctrl}Controller() {}`);
 
   await setupFramework(framework, projectDir);
+  await installDependencies(projectDir, dependencies);
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   log(`\n✅ Project for ${framework} created successfully in ${duration}s!`);
   log(`📂 Location: ${projectDir}`);
 }
 
-// -----------------------------
-// Graceful cleanup
-// -----------------------------
+// Handle graceful exit
 process.on("SIGINT", () => {
   log("\n🧹 Cleaning up temporary cache...");
   fs.emptyDirSync(cacheDir);
@@ -290,4 +427,6 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-main().catch(err => console.error("❌ Fatal error:", err));
+main().catch((err) => {
+  console.error("❌ Fatal error:", err);
+});
